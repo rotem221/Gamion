@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-950: #0f0a2e;
+  --color-neon-900: #1e1b4b;
+  --color-neon-800: #2e1065;
+  --color-neon-700: #4c1d95;
+  --color-neon-600: #5b21b6;
+  --color-neon-500: #7c3aed;
+  --color-neon-400: #8b5cf6;
+  --color-neon-300: #a78bfa;
+  --color-neon-200: #c4b5fd;
+  --color-neon-100: #ddd6fe;
+  --color-neon-glow: rgba(124, 58, 237, 0.5);
+}
+
+body {
+  background: linear-gradient(135deg, var(--color-neon-950), var(--color-neon-900), var(--color-neon-800));
+  color: white;
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  margin: 0;
+}
+
+#root {
+  min-height: 100dvh;
+}

@@ -1,0 +1,15 @@
+{
+  "name": "gameion",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@gameion/server & npm run dev --workspace=@gameion/client",
+    "dev:server": "npm run dev --workspace=@gameion/server",
+    "dev:client": "npm run dev --workspace=@gameion/client",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
