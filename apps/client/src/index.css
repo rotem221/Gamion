@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@source "../../../packages/shared/src";
+
+@theme {
+  --color-gamion-primary: #6366f1;
+  --color-gamion-secondary: #8b5cf6;
+  --color-gamion-dark: #0f0d1a;
+  --color-gamion-surface: #1a1730;
+  --font-family-display: "Inter", sans-serif;
+}

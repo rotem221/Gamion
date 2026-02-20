@@ -1,0 +1,28 @@
+{
+  "name": "gamion",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "dev:client": "turbo run dev --filter=@gamion/client",
+    "dev:server": "turbo run dev --filter=@gamion/server",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.8.0",
+    "typescript": "^5.7.0",
+    "eslint": "^9.20.0",
+    "@eslint/js": "^9.20.0",
+    "typescript-eslint": "^8.24.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.15.0"
+  }
+}
