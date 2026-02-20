@@ -14,17 +14,21 @@ type GameServer = Server<ClientToServerEvents, ServerToClientEvents, InterServer
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 export function registerGameHandlers(io: GameServer, socket: GameSocket) {
-  socket.on("start_game", (data, callback) => {
+  socket.on("start_game", async (data, callback) => {
     const { roomId } = data;
-    const room = roomStore.get(roomId);
+    const room = await roomStore.get(roomId);
 
     if (!room) {
       callback({ ok: false, error: "Room not found" });
       return;
     }
 
-    // Allow both leader (phone) and host (desktop) to start
-    if (!roomStore.isLeader(roomId, socket.id) && !roomStore.isHost(roomId, socket.id)) {
+    const [isLeader, isHost] = await Promise.all([
+      roomStore.isLeader(roomId, socket.id),
+      roomStore.isHost(roomId, socket.id),
+    ]);
+
+    if (!isLeader && !isHost) {
       callback({ ok: false, error: "Only the leader or host can start the game" });
       return;
     }
@@ -39,13 +43,13 @@ export function registerGameHandlers(io: GameServer, socket: GameSocket) {
       return;
     }
 
-    const slotAssignments = roomStore.assignSlots(roomId);
+    const slotAssignments = await roomStore.assignSlots(roomId);
     if (!slotAssignments) {
       callback({ ok: false, error: "Failed to assign player slots" });
       return;
     }
 
-    room.status = "playing";
+    await roomStore.setStatus(roomId, "playing");
 
     console.log(`Game "${room.selectedGameId}" started in room ${roomId} | Slots: ${JSON.stringify(slotAssignments)}`);
 
@@ -54,51 +58,53 @@ export function registerGameHandlers(io: GameServer, socket: GameSocket) {
       slotAssignments,
     });
 
-    // Initialize bowling game state if applicable
     if (room.selectedGameId === "bowling") {
       const playerIds = room.players.map((p) => p.id);
       const playerNames = room.players.map((p) => p.name);
-      initBowlingGame(io, roomId, playerIds, playerNames);
+      await initBowlingGame(io, roomId, playerIds, playerNames);
     }
 
     callback({ ok: true });
   });
 
-  socket.on("exit_game", (data, callback) => {
+  socket.on("exit_game", async (data, callback) => {
     const { roomId } = data;
-    const room = roomStore.get(roomId);
+    const room = await roomStore.get(roomId);
 
     if (!room) {
       callback({ ok: false, error: "Room not found" });
       return;
     }
 
-    // Only leader or host can exit the game
-    if (!roomStore.isLeader(roomId, socket.id) && !roomStore.isHost(roomId, socket.id)) {
+    const [isLeader, isHost] = await Promise.all([
+      roomStore.isLeader(roomId, socket.id),
+      roomStore.isHost(roomId, socket.id),
+    ]);
+
+    if (!isLeader && !isHost) {
       callback({ ok: false, error: "Only the leader or host can end the game" });
       return;
     }
 
-    room.status = "lobby";
-    room.selectedGameId = null;
+    await roomStore.setStatus(roomId, "lobby");
+    await roomStore.setSelectedGame(roomId, null);
 
     console.log(`Game ended in room ${roomId} — returning to lobby`);
 
+    // Re-fetch to get updated state
+    const updatedRoom = await roomStore.get(roomId);
+
     io.to(roomId).emit("game_ended");
-    io.to(roomId).emit("room_state", {
-      id: room.id,
-      players: room.players,
-      status: room.status,
-      selectedGameId: room.selectedGameId,
-      hostSocketIds: room.hostSocketIds,
-    });
+    if (updatedRoom) {
+      io.to(roomId).emit("room_state", updatedRoom);
+    }
 
     callback({ ok: true });
   });
 
-  socket.on("game_input", (data: GameInput) => {
+  socket.on("game_input", async (data: GameInput) => {
     const { roomId, ...inputPayload } = data;
-    const room = roomStore.get(roomId);
+    const room = await roomStore.get(roomId);
     if (!room || room.status !== "playing") return;
 
     const applyData: ApplyInput = {
@@ -109,7 +115,6 @@ export function registerGameHandlers(io: GameServer, socket: GameSocket) {
       timestamp: inputPayload.timestamp,
     };
 
-    // Send to ALL hosts in the room (not phones — they don't need input broadcasts)
     for (const hostId of room.hostSocketIds) {
       io.to(hostId).emit("apply_input", applyData);
     }

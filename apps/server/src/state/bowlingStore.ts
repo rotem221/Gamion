@@ -1,7 +1,15 @@
 import type { BowlingGameState, BowlingPlayerScore, BowlingFrame } from "@gameion/shared";
 import { BOWLING } from "@gameion/shared";
+import type { RedisClient } from "../lib/redis.js";
 
-const bowlingGames = new Map<string, BowlingGameState>();
+const BOWLING_TTL = 3600; // 1 hour
+const key = (roomId: string) => `bowling:${roomId}`;
+
+let redis: RedisClient;
+
+export function initBowlingStore(client: RedisClient) {
+  redis = client;
+}
 
 function createEmptyFrames(): BowlingFrame[] {
   return Array.from({ length: BOWLING.TOTAL_FRAMES }, () => ({
@@ -46,18 +54,15 @@ function calculateScores(scores: BowlingPlayerScore[]): void {
       }
 
       if (f < 9) {
-        // Normal frames (0-8)
         if (isStrike(frame)) {
-          // Need next 2 throws
           const next = getNextThrows(player.frames, f, 2);
           if (next.length >= 2) {
             frame.score = total + 10 + next[0] + next[1];
             total = frame.score;
           } else {
-            frame.score = null; // can't score yet
+            frame.score = null;
           }
         } else if (isSpare(frame)) {
-          // Need next 1 throw
           const next = getNextThrows(player.frames, f, 1);
           if (next.length >= 1) {
             frame.score = total + 10 + next[0];
@@ -72,7 +77,6 @@ function calculateScores(scores: BowlingPlayerScore[]): void {
           frame.score = null;
         }
       } else {
-        // 10th frame: sum all throws (up to 3)
         const sum = frame.throws.reduce((a, b) => a + b, 0);
         if (isTenthFrameComplete(frame)) {
           frame.score = total + sum;
@@ -101,13 +105,12 @@ function isTenthFrameComplete(frame: BowlingFrame): boolean {
   if (frame.throws.length === 0) return false;
   if (frame.throws.length >= 3) return true;
   if (frame.throws.length === 2) {
-    // If first was strike or it's a spare, need 3rd throw
     if (frame.throws[0] === BOWLING.TOTAL_PINS) return false;
     if (frame.throws[0] + frame.throws[1] >= BOWLING.TOTAL_PINS) return false;
-    return true; // open frame in 10th
+    return true;
   }
   if (frame.throws.length === 1 && frame.throws[0] === BOWLING.TOTAL_PINS) {
-    return false; // strike in 10th, need 2 more
+    return false;
   }
   return false;
 }
@@ -119,45 +122,53 @@ function isFrameComplete(frame: BowlingFrame, frameIndex: number): boolean {
   return isTenthFrameComplete(frame);
 }
 
+async function getGame(roomId: string): Promise<BowlingGameState | null> {
+  const raw = await redis.get(key(roomId));
+  return raw ? (JSON.parse(raw) as BowlingGameState) : null;
+}
+
+async function saveGame(roomId: string, state: BowlingGameState): Promise<void> {
+  await redis.set(key(roomId), JSON.stringify(state), { EX: BOWLING_TTL });
+}
+
 export const bowlingStore = {
-  create(roomId: string, playerIds: string[], playerNames: string[]): BowlingGameState {
+  async create(roomId: string, playerIds: string[], playerNames: string[]): Promise<BowlingGameState> {
     const state = createInitialState(playerIds, playerNames);
-    bowlingGames.set(roomId, state);
+    await saveGame(roomId, state);
     return state;
   },
 
-  get(roomId: string): BowlingGameState | undefined {
-    return bowlingGames.get(roomId);
+  async get(roomId: string): Promise<BowlingGameState | null> {
+    return getGame(roomId);
   },
 
-  delete(roomId: string): void {
-    bowlingGames.delete(roomId);
+  async delete(roomId: string): Promise<void> {
+    await redis.del(key(roomId));
   },
 
-  getCurrentPlayerId(roomId: string): string | undefined {
-    const state = bowlingGames.get(roomId);
-    if (!state) return undefined;
+  async getCurrentPlayerId(roomId: string): Promise<string | null> {
+    const state = await getGame(roomId);
+    if (!state) return null;
     return state.turnOrder[state.currentPlayerIndex];
   },
 
-  setPhase(roomId: string, phase: BowlingGameState["phase"]): void {
-    const state = bowlingGames.get(roomId);
-    if (state) state.phase = phase;
+  async setPhase(roomId: string, phase: BowlingGameState["phase"]): Promise<void> {
+    const state = await getGame(roomId);
+    if (!state) return;
+    state.phase = phase;
+    await saveGame(roomId, state);
   },
 
-  recordThrow(roomId: string, pinsKnocked: number): { state: BowlingGameState; isGameOver: boolean } | undefined {
-    const game = bowlingGames.get(roomId);
-    if (!game) return undefined;
+  async recordThrow(roomId: string, pinsKnocked: number): Promise<{ state: BowlingGameState; isGameOver: boolean } | null> {
+    const game = await getGame(roomId);
+    if (!game) return null;
 
     const playerScore = game.scores[game.currentPlayerIndex];
     const frame = playerScore.frames[game.currentFrame];
 
-    // Record the throw
     frame.throws.push(pinsKnocked);
 
-    // Update standing pins
     const pinsStillUp = game.standingPins.filter(Boolean).length - pinsKnocked;
-    // Mark pins as knocked (from left to right for simplicity)
     let knocked = 0;
     for (let i = 0; i < BOWLING.TOTAL_PINS && knocked < pinsKnocked; i++) {
       if (game.standingPins[i]) {
@@ -166,47 +177,42 @@ export const bowlingStore = {
       }
     }
 
-    // Recalculate scores
     calculateScores(game.scores);
 
-    // Check if frame is complete
     if (isFrameComplete(frame, game.currentFrame)) {
-      // Move to next player
       game.currentPlayerIndex++;
 
       if (game.currentPlayerIndex >= game.turnOrder.length) {
-        // All players done this frame
         game.currentPlayerIndex = 0;
         game.currentFrame++;
 
         if (game.currentFrame >= BOWLING.TOTAL_FRAMES) {
           game.phase = "finished";
           calculateScores(game.scores);
+          await saveGame(roomId, game);
           return { state: game, isGameOver: true };
         }
       }
 
-      // Reset pins for new frame/player
       game.standingPins = Array(BOWLING.TOTAL_PINS).fill(true);
       game.currentThrowInFrame = 0;
     } else {
-      // Same frame, next throw (don't reset pins for spare attempt)
       game.currentThrowInFrame++;
 
-      // In 10th frame, reset pins after strike
       if (game.currentFrame === 9 && pinsStillUp === 0) {
         game.standingPins = Array(BOWLING.TOTAL_PINS).fill(true);
       }
     }
 
     game.phase = "waiting";
+    await saveGame(roomId, game);
     return { state: game, isGameOver: false };
   },
 
-  resetPins(roomId: string): void {
-    const state = bowlingGames.get(roomId);
-    if (state) {
-      state.standingPins = Array(BOWLING.TOTAL_PINS).fill(true);
-    }
+  async resetPins(roomId: string): Promise<void> {
+    const state = await getGame(roomId);
+    if (!state) return;
+    state.standingPins = Array(BOWLING.TOTAL_PINS).fill(true);
+    await saveGame(roomId, state);
   },
 };

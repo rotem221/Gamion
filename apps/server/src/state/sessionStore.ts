@@ -1,4 +1,9 @@
 import { randomBytes } from "crypto";
+import type { RedisClient } from "../lib/redis.js";
+
+const SESSION_TTL = 3600; // 1 hour
+const sessionKey = (token: string) => `session:${token}`;
+const playerTokenKey = (playerId: string) => `player_token:${playerId}`;
 
 interface SessionEntry {
   roomId: string;
@@ -7,49 +12,59 @@ interface SessionEntry {
   socketId: string;
 }
 
-// Map token -> session entry
-const sessions = new Map<string, SessionEntry>();
-// Map playerId -> token (for lookup when reconnecting)
-const playerTokens = new Map<string, string>();
+let redis: RedisClient;
+
+export function initSessionStore(client: RedisClient) {
+  redis = client;
+}
 
 export const sessionStore = {
-  createToken(roomId: string, playerId: string, socketId: string): string {
+  async createToken(roomId: string, playerId: string, socketId: string): Promise<string> {
     // Remove old token if exists
-    const oldToken = playerTokens.get(playerId);
-    if (oldToken) sessions.delete(oldToken);
+    const oldToken = await redis.get(playerTokenKey(playerId));
+    if (oldToken) await redis.del(sessionKey(oldToken));
 
     const token = randomBytes(16).toString("hex");
-    sessions.set(token, { roomId, playerId, token, socketId });
-    playerTokens.set(playerId, token);
+    const entry: SessionEntry = { roomId, playerId, token, socketId };
+    await redis.set(sessionKey(token), JSON.stringify(entry), { EX: SESSION_TTL });
+    await redis.set(playerTokenKey(playerId), token, { EX: SESSION_TTL });
     return token;
   },
 
-  verify(roomId: string, playerId: string, token: string): boolean {
-    const entry = sessions.get(token);
-    if (!entry) return false;
+  async verify(roomId: string, playerId: string, token: string): Promise<boolean> {
+    const raw = await redis.get(sessionKey(token));
+    if (!raw) return false;
+    const entry = JSON.parse(raw) as SessionEntry;
     return entry.roomId === roomId && entry.playerId === playerId;
   },
 
-  updateSocketId(playerId: string, newSocketId: string): void {
-    const token = playerTokens.get(playerId);
+  async updateSocketId(playerId: string, newSocketId: string): Promise<void> {
+    const token = await redis.get(playerTokenKey(playerId));
     if (!token) return;
-    const entry = sessions.get(token);
-    if (entry) entry.socketId = newSocketId;
+    const raw = await redis.get(sessionKey(token));
+    if (!raw) return;
+    const entry = JSON.parse(raw) as SessionEntry;
+    entry.socketId = newSocketId;
+    await redis.set(sessionKey(token), JSON.stringify(entry), { EX: SESSION_TTL });
   },
 
-  removePlayer(playerId: string): void {
-    const token = playerTokens.get(playerId);
+  async removePlayer(playerId: string): Promise<void> {
+    const token = await redis.get(playerTokenKey(playerId));
     if (token) {
-      sessions.delete(token);
-      playerTokens.delete(playerId);
+      await redis.del(sessionKey(token));
+      await redis.del(playerTokenKey(playerId));
     }
   },
 
-  removeRoom(roomId: string): void {
-    for (const [token, entry] of sessions) {
+  async removeRoom(roomId: string): Promise<void> {
+    const keys = await redis.keys("session:*");
+    for (const k of keys) {
+      const raw = await redis.get(k);
+      if (!raw) continue;
+      const entry = JSON.parse(raw) as SessionEntry;
       if (entry.roomId === roomId) {
-        sessions.delete(token);
-        playerTokens.delete(entry.playerId);
+        await redis.del(k);
+        await redis.del(playerTokenKey(entry.playerId));
       }
     }
   },

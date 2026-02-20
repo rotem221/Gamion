@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
 import { getSocket } from "../lib/socket";
-import { STUN_SERVERS } from "@gameion/shared";
+import { fetchIceServers } from "../lib/iceServers";
 import type { WebRTCSignal } from "@gameion/shared";
 
 /**
@@ -15,7 +15,7 @@ export function useRemoteStreams(roomId: string) {
   useEffect(() => {
     const socket = getSocket();
 
-    const handleOffer = (data: WebRTCSignal) => {
+    const handleOffer = async (data: WebRTCSignal) => {
       // Don't create duplicate peers
       if (peersRef.current.has(data.fromSocketId)) {
         const existing = peersRef.current.get(data.fromSocketId)!;
@@ -23,10 +23,12 @@ export function useRemoteStreams(roomId: string) {
         return;
       }
 
+      const iceServers = await fetchIceServers();
+
       const peer = new SimplePeer({
         initiator: false,
         trickle: true,
-        config: { iceServers: STUN_SERVERS },
+        config: { iceServers },
       });
 
       peer.on("signal", (signalData) => {

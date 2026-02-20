@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import SimplePeer from "simple-peer";
 import { getSocket } from "../lib/socket";
-import { STUN_SERVERS } from "@gameion/shared";
+import { fetchIceServers } from "../lib/iceServers";
 import type { WebRTCSignal } from "@gameion/shared";
 
 /**
@@ -24,10 +24,13 @@ export function useWebRTC(roomId: string) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, facingMode: "user" },
-        audio: true,
-      });
+      const [stream, iceServers] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({
+          video: { width: 320, height: 240, facingMode: "user" },
+          audio: true,
+        }),
+        fetchIceServers(),
+      ]);
       streamRef.current = stream;
       setIsStreaming(true);
 
@@ -38,7 +41,7 @@ export function useWebRTC(roomId: string) {
           initiator: true,
           stream,
           trickle: true,
-          config: { iceServers: STUN_SERVERS },
+          config: { iceServers },
         });
 
         peer.on("signal", (signalData) => {

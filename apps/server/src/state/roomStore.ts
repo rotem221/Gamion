@@ -1,9 +1,26 @@
 import type { RoomState, Player, PlayerSlot } from "@gameion/shared";
+import type { RedisClient } from "../lib/redis.js";
 
-const rooms = new Map<string, RoomState>();
+const ROOM_TTL = 3600; // 1 hour
+const key = (roomId: string) => `room:${roomId}`;
+
+let redis: RedisClient;
+
+export function initRoomStore(client: RedisClient) {
+  redis = client;
+}
+
+async function getRoom(roomId: string): Promise<RoomState | null> {
+  const raw = await redis.get(key(roomId));
+  return raw ? (JSON.parse(raw) as RoomState) : null;
+}
+
+async function saveRoom(room: RoomState): Promise<void> {
+  await redis.set(key(room.id), JSON.stringify(room), { EX: ROOM_TTL });
+}
 
 export const roomStore = {
-  create(roomId: string, hostSocketId: string): RoomState {
+  async create(roomId: string, hostSocketId: string): Promise<RoomState> {
     const room: RoomState = {
       id: roomId,
       players: [],
@@ -11,78 +28,85 @@ export const roomStore = {
       selectedGameId: null,
       hostSocketIds: [hostSocketId],
     };
-    rooms.set(roomId, room);
+    await saveRoom(room);
     return room;
   },
 
-  get(roomId: string): RoomState | undefined {
-    return rooms.get(roomId);
+  async get(roomId: string): Promise<RoomState | null> {
+    return getRoom(roomId);
   },
 
-  addPlayer(roomId: string, player: Player): RoomState | undefined {
-    const room = rooms.get(roomId);
-    if (!room) return undefined;
+  async addPlayer(roomId: string, player: Player): Promise<RoomState | null> {
+    const room = await getRoom(roomId);
+    if (!room) return null;
     room.players.push(player);
+    await saveRoom(room);
     return room;
   },
 
-  removePlayer(roomId: string, playerId: string): RoomState | undefined {
-    const room = rooms.get(roomId);
-    if (!room) return undefined;
-
+  async removePlayer(roomId: string, playerId: string): Promise<RoomState | null> {
+    const room = await getRoom(roomId);
+    if (!room) return null;
     room.players = room.players.filter((p) => p.id !== playerId);
-
     if (room.players.length > 0 && !room.players.some((p) => p.isLeader)) {
       room.players[0].isLeader = true;
     }
-
+    await saveRoom(room);
     return room;
   },
 
-  addHost(roomId: string, hostSocketId: string): RoomState | undefined {
-    const room = rooms.get(roomId);
-    if (!room) return undefined;
+  async addHost(roomId: string, hostSocketId: string): Promise<RoomState | null> {
+    const room = await getRoom(roomId);
+    if (!room) return null;
     if (!room.hostSocketIds.includes(hostSocketId)) {
       room.hostSocketIds.push(hostSocketId);
     }
+    await saveRoom(room);
     return room;
   },
 
-  removeHost(roomId: string, hostSocketId: string): RoomState | undefined {
-    const room = rooms.get(roomId);
-    if (!room) return undefined;
+  async removeHost(roomId: string, hostSocketId: string): Promise<RoomState | null> {
+    const room = await getRoom(roomId);
+    if (!room) return null;
     room.hostSocketIds = room.hostSocketIds.filter((id) => id !== hostSocketId);
+    await saveRoom(room);
     return room;
   },
 
-  isHost(roomId: string, socketId: string): boolean {
-    const room = rooms.get(roomId);
+  async isHost(roomId: string, socketId: string): Promise<boolean> {
+    const room = await getRoom(roomId);
     if (!room) return false;
     return room.hostSocketIds.includes(socketId);
   },
 
-  findRoomBySocketId(socketId: string): { roomId: string; player: Player | null; isHost: boolean } | undefined {
-    for (const [roomId, room] of rooms) {
+  async findRoomBySocketId(socketId: string): Promise<{ roomId: string; player: Player | null; isHost: boolean } | null> {
+    const keys = await redis.keys("room:*");
+
+    for (const k of keys) {
+      const raw = await redis.get(k);
+      if (!raw) continue;
+      const room = JSON.parse(raw) as RoomState;
+
       const player = room.players.find((p) => p.id === socketId);
-      if (player) return { roomId, player, isHost: false };
+      if (player) return { roomId: room.id, player, isHost: false };
 
       if (room.hostSocketIds.includes(socketId)) {
-        return { roomId, player: null, isHost: true };
+        return { roomId: room.id, player: null, isHost: true };
       }
     }
-    return undefined;
+    return null;
   },
 
-  isLeader(roomId: string, socketId: string): boolean {
-    const room = rooms.get(roomId);
+  async isLeader(roomId: string, socketId: string): Promise<boolean> {
+    const room = await getRoom(roomId);
     if (!room) return false;
     const player = room.players.find((p) => p.id === socketId);
     return player?.isLeader ?? false;
   },
 
-  assignSlots(roomId: string): Record<string, PlayerSlot> | undefined {
-    const room = rooms.get(roomId);
-    if (!room) return undefined;
+  async assignSlots(roomId: string): Promise<Record<string, PlayerSlot> | null> {
+    const room = await getRoom(roomId);
+    if (!room) return null;
     const assignments: Record<string, PlayerSlot> = {};
     room.players.forEach((p, i) => {
       assignments[p.id] = i;
@@ -90,11 +114,30 @@ export const roomStore = {
     return assignments;
   },
 
-  delete(roomId: string): void {
-    rooms.delete(roomId);
+  async setStatus(roomId: string, status: RoomState["status"]): Promise<void> {
+    const room = await getRoom(roomId);
+    if (!room) return;
+    room.status = status;
+    await saveRoom(room);
   },
 
-  getAllRoomIds(): Set<string> {
-    return new Set(rooms.keys());
+  async setSelectedGame(roomId: string, gameId: string | null): Promise<void> {
+    const room = await getRoom(roomId);
+    if (!room) return;
+    room.selectedGameId = gameId;
+    await saveRoom(room);
+  },
+
+  async save(room: RoomState): Promise<void> {
+    await saveRoom(room);
+  },
+
+  async delete(roomId: string): Promise<void> {
+    await redis.del(key(roomId));
+  },
+
+  async getAllRoomIds(): Promise<Set<string>> {
+    const keys = await redis.keys("room:*");
+    return new Set(keys.map((k) => k.replace("room:", "")));
   },
 };
