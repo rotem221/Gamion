@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
+if (process.env.SERVER_URL) {
+  console.log(`Proxy enabled → ${process.env.SERVER_URL}`);
+}
+
 export default defineConfig({
   define: {
     global: "globalThis",
@@ -34,9 +38,16 @@ export default defineConfig({
           "/socket.io": {
             target: process.env.SERVER_URL,
             ws: true,
+            changeOrigin: true,
           },
-          "/health": process.env.SERVER_URL,
-          "/ice-servers": process.env.SERVER_URL,
+          "/health": {
+            target: process.env.SERVER_URL,
+            changeOrigin: true,
+          },
+          "/ice-servers": {
+            target: process.env.SERVER_URL,
+            changeOrigin: true,
+          },
         }
       : undefined,
   },
