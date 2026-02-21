@@ -22,8 +22,9 @@
 
 | Variable | Required | Description |
 |---|---|---|
-| `VITE_API_URL` | Yes | Backend URL (e.g. `https://gameion-api.onrender.com`) |
-| `VITE_SOCKET_URL` | Yes | Socket.io URL (same as API URL for most setups) |
+| `SERVER_URL` | No | Backend URL for proxy (runtime, used by `vite preview`). Set this on Railway/Render instead of the `VITE_*` vars below. |
+| `VITE_API_URL` | No | Backend URL baked at build time (for static hosting like Vercel/Netlify) |
+| `VITE_SOCKET_URL` | No | Socket.io URL baked at build time (for static hosting) |
 
 ## Frontend (Vercel / Netlify)
 
@@ -69,9 +70,9 @@ Public STUN servers are included by default but fail on symmetric NATs (common o
 When deploying to Railway with separate client and server services:
 
 1. **Server service:** Set `CORS_ORIGIN` to the client's Railway URL (e.g. `https://gameionclient-production.up.railway.app`)
-2. **Client service:** Set `VITE_API_URL` and `VITE_SOCKET_URL` to the server's Railway URL (e.g. `https://gameionserver-production.up.railway.app`)
+2. **Client service:** Set `SERVER_URL` to the server's Railway URL (e.g. `https://gameionserver-production.up.railway.app`)
 
-> **Note:** `VITE_*` variables are baked in at build time. After changing them, trigger a redeploy.
+The client's `vite preview` server proxies `/socket.io`, `/health`, and `/ice-servers` to `SERVER_URL`, so no CORS issues and no build-time env vars needed.
 
 ## Local Development
 

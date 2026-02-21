@@ -29,5 +29,15 @@ export default defineConfig({
     host: true,
     port: Number(process.env.PORT) || 4173,
     allowedHosts: true,
+    proxy: process.env.SERVER_URL
+      ? {
+          "/socket.io": {
+            target: process.env.SERVER_URL,
+            ws: true,
+          },
+          "/health": process.env.SERVER_URL,
+          "/ice-servers": process.env.SERVER_URL,
+        }
+      : undefined,
   },
 });

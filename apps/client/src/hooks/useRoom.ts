@@ -9,7 +9,15 @@ export function useRoom() {
   const createRoom = useCallback((): Promise<string> => {
     return new Promise((resolve, reject) => {
       const socket = getSocket();
+      if (!socket.connected) {
+        reject(new Error("Not connected to server"));
+        return;
+      }
+      const timeout = setTimeout(() => {
+        reject(new Error("Server not responding — check connection"));
+      }, 8000);
       socket.emit("create_room", (response) => {
+        clearTimeout(timeout);
         if (response.ok) {
           resolve(response.roomId);
         } else {

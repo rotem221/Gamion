@@ -22,6 +22,11 @@ export function useSocket() {
       dispatch({ type: "SET_CONNECTED", payload: false });
     });
 
+    socket.on("connect_error", (err) => {
+      console.error("Socket connection error:", err.message);
+      dispatch({ type: "SET_CONNECTED", payload: false });
+    });
+
     socket.on("room_state", (state) => {
       dispatch({ type: "SET_ROOM_STATE", payload: state });
     });
