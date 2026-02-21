@@ -1,12 +1,12 @@
 import type { RoomState, Player, PlayerSlot } from "@gameion/shared";
-import type { RedisClient } from "../lib/redis.js";
+import type { StoreClient } from "../lib/memoryAdapter.js";
 
 const ROOM_TTL = 3600; // 1 hour
 const key = (roomId: string) => `room:${roomId}`;
 
-let redis: RedisClient;
+let redis: StoreClient;
 
-export function initRoomStore(client: RedisClient) {
+export function initRoomStore(client: StoreClient) {
   redis = client;
 }
 

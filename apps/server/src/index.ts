@@ -12,6 +12,7 @@ import type {
 import { STUN_SERVERS } from "@gameion/shared";
 import { registerSocketHandlers } from "./socket/index.js";
 import { getRedisClient } from "./lib/redis.js";
+import { memoryAdapter, type StoreClient } from "./lib/memoryAdapter.js";
 import { initRoomStore } from "./state/roomStore.js";
 import { initSessionStore } from "./state/sessionStore.js";
 import { initBowlingStore } from "./state/bowlingStore.js";
@@ -40,7 +41,6 @@ app.get("/health", (_req, res) => {
 app.get("/ice-servers", (_req, res) => {
   const servers = [...STUN_SERVERS];
 
-  // If TURN credentials are configured, include them
   const turnSecret = process.env.TURN_SECRET;
   const turnUrl = process.env.TURN_URL;
   if (turnUrl && turnSecret) {
@@ -55,26 +55,29 @@ app.get("/ice-servers", (_req, res) => {
 });
 
 async function main() {
-  // Connect to Redis
   const redisClient = await getRedisClient();
 
-  // Initialize stores with the Redis client
-  initRoomStore(redisClient);
-  initSessionStore(redisClient);
-  initBowlingStore(redisClient);
+  // Use Redis if available, otherwise fall back to in-memory
+  const storeClient: StoreClient = redisClient ?? memoryAdapter;
 
-  // Create a duplicate client for the Redis adapter (subscriber)
-  const subClient = redisClient.duplicate();
-  await subClient.connect();
+  initRoomStore(storeClient);
+  initSessionStore(storeClient);
+  initBowlingStore(storeClient);
+
+  const ioOptions: any = {
+    cors: { origin: CORS_ORIGIN },
+  };
+
+  // Only attach Redis adapter if Redis is available
+  if (redisClient) {
+    const subClient = redisClient.duplicate();
+    await subClient.connect();
+    ioOptions.adapter = createAdapter(redisClient, subClient);
+  }
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
     httpServer,
-    {
-      cors: {
-        origin: CORS_ORIGIN,
-      },
-      adapter: createAdapter(redisClient, subClient),
-    }
+    ioOptions
   );
 
   registerSocketHandlers(io);

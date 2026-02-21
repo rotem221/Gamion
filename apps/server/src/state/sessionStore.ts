@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { RedisClient } from "../lib/redis.js";
+import type { StoreClient } from "../lib/memoryAdapter.js";
 
 const SESSION_TTL = 3600; // 1 hour
 const sessionKey = (token: string) => `session:${token}`;
@@ -12,9 +12,9 @@ interface SessionEntry {
   socketId: string;
 }
 
-let redis: RedisClient;
+let redis: StoreClient;
 
-export function initSessionStore(client: RedisClient) {
+export function initSessionStore(client: StoreClient) {
   redis = client;
 }
 

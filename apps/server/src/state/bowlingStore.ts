@@ -1,13 +1,13 @@
 import type { BowlingGameState, BowlingPlayerScore, BowlingFrame } from "@gameion/shared";
 import { BOWLING } from "@gameion/shared";
-import type { RedisClient } from "../lib/redis.js";
+import type { StoreClient } from "../lib/memoryAdapter.js";
 
 const BOWLING_TTL = 3600; // 1 hour
 const key = (roomId: string) => `bowling:${roomId}`;
 
-let redis: RedisClient;
+let redis: StoreClient;
 
-export function initBowlingStore(client: RedisClient) {
+export function initBowlingStore(client: StoreClient) {
   redis = client;
 }
 
