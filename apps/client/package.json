@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "cd ../.. && npm run build -w @gameion/shared",
     "build": "tsc -b && vite build",
     "start": "vite preview",
     "preview": "vite preview",
