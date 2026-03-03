@@ -20,7 +20,7 @@ type TypedSocket = Socket<
   SocketData
 >;
 
-export function registerSocketHandlers(io: TypedServer, socket: TypedSocket) {
+export function registerSocketHandlers(_io: TypedServer, socket: TypedSocket) {
   socket.on(SOCKET_EVENTS.PING, (data) => {
     console.log(
       `[Socket] Ping from ${socket.id}, timestamp: ${data.timestamp}`
